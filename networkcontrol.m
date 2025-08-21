@@ -1,4 +1,5 @@
 %% 参数设置
+% "Reverse engineering the brain input: Network control theory to identify cognitive task-related control nodes". Zhichao Liang et al
 N = 10;                % 节点数
 T = 50;                % 时间长度
 alpha = 3;             % 关键节点个数
