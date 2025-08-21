@@ -1,55 +1,121 @@
-%% å‚æ•°è®¾ç½®
-% "Reverse engineering the brain input: Network control theory to identify cognitive task-related control nodes". Zhichao Liang et al
-N = 10;                % èŠ‚ç‚¹æ•°
-T = 50;                % æ—¶é—´é•¿åº¦
-alpha = 3;             % å…³é”®èŠ‚ç‚¹ä¸ªæ•°
-lambda1 = 0.1;         % è¶…å‚æ•° Î»1
-lambda2 = 0.1;         % è¶…å‚æ•° Î»2
-epsilon = 1e-3;        % æ¾å¼›å‚æ•°
+%% ²ÎÊıÉèÖÃ
+N = 10; T = 50;
+lambda1 = 0.1; lambda2 = 0.1; alpha = 3;
 
-% é‚»æ¥çŸ©é˜µ Aï¼ˆå®é™…åº”ç”¨ä¸­åº”ä»æ•°æ®è·å¾—ï¼‰
-A = randn(N,N)*0.1;
-
-% è§‚æµ‹çš„è„‘ç½‘ç»œçŠ¶æ€ x_hat(t)ï¼Œå‡è®¾å·²çŸ¥
+A = randn(N,N)*0.1;     % ÒÑÖªÁÚ½Ó¾ØÕó
 X_obs = randn(N,T);
-
-% åˆå§‹çŠ¶æ€
 x0 = X_obs(:,1);
 
-%% CVX ä¼˜åŒ–
-cvx_begin quiet
-    variables B(N,N) U(N,T) X(N,T)
+% ------------------------------
+% °Ñ (X,U,B) Æ´³ÉÒ»¸öÏòÁ¿ z
+% ------------------------------
+nx = N*T; nu = N*T; nb = N; 
+z0 = randn(nx+nu+nb,1);   % ³õÊ¼²Â²â
 
-    % -------- ç›®æ ‡å‡½æ•° --------
-    reconstruction_loss = sum_square(vec(X - X_obs));    % æ•°æ®é‡å»ºè¯¯å·®
-    input_energy        = lambda1 * sum_square(vec(U));  % è¾“å…¥èƒ½é‡çº¦æŸ
-    smoothness          = 0;                             % å¹³æ»‘é¡¹
-    for t = 1:T-1
-        smoothness = smoothness + lambda2 * sum_square(U(:,t+1) - U(:,t));
+% ¸¨ÖúË÷Òı
+idxX = 1:nx;
+idxU = nx+(1:nu);
+idxB = nx+nu+(1:nb);
+
+% Ä¿±êº¯Êı
+fun = @(z) objective_fun(z, A, X_obs, N, T, lambda1, lambda2, idxX, idxU, idxB);
+
+% Ô¼Êø
+nonlcon = @(z) dynamics_constraints(z, A, x0, N, T, alpha, idxX, idxU, idxB);
+
+% ±ß½ç (B relaxed µ½ [0,1])
+lb = -inf*ones(nx+nu+nb,1);
+ub =  inf*ones(nx+nu+nb,1);
+lb(idxB) = 0; ub(idxB) = 1;
+
+% ÓÅ»¯
+opts = optimoptions('fmincon','Display','iter','Algorithm','sqp');
+[z_opt,fval] = fmincon(fun,z0,[],[],[],[],lb,ub,nonlcon,opts);
+
+B_opt = z_opt(idxB);
+U_opt = reshape(z_opt(idxU),[N,T]);
+X_opt = reshape(z_opt(idxX),[N,T]);
+
+%% --- º¯Êı¶¨Òå ---
+function f = objective_fun(z,A,X_obs,N,T,lambda1,lambda2,idxX,idxU,idxB)
+    X = reshape(z(idxX),[N,T]);
+    U = reshape(z(idxU),[N,T]);
+    % B Ö»ÔÚÔ¼ÊøÀï³öÏÖ£¬ÕâÀï²»ÓÃ
+    f = sum(sum((X - X_obs).^2)) ...
+        + lambda1*sum(sum(U.^2)) ...
+        + lambda2*sum(sum((U(:,2:T)-U(:,1:T-1)).^2));
+end
+
+function [c,ceq] = dynamics_constraints(z,A,x0,N,T,alpha,idxX,idxU,idxB)
+    X = reshape(z(idxX),[N,T]);
+    U = reshape(z(idxU),[N,T]);
+    B = diag(z(idxB));   % Ö»È¡¶Ô½ÇÏß
+    % ¶¯Á¦Ñ§Ô¼Êø
+    ceq_dyn = [];
+    for t=1:T-1
+        ceq_dyn = [ceq_dyn; X(:,t+1) - (A*X(:,t) + B*U(:,t))];
     end
-    
-    minimize( reconstruction_loss + input_energy + smoothness )
+    % ³õÊ¼Ìõ¼ş
+    ceq_init = X(:,1) - x0;
+    % ½ÚµãÊıÔ¼Êø
+    ceq_alpha = sum(z(idxB)) - alpha;
+    ceq = [ceq_dyn; ceq_init; ceq_alpha];
+    c = [];
+end
 
-    % -------- çº¦æŸæ¡ä»¶ --------
-    subject to
-        % åˆå§‹æ¡ä»¶
-        X(:,1) == x0;
 
-        % åŠ¨åŠ›å­¦çº¦æŸ
-        for t = 1:T-1
-            X(:,t+1) == A*X(:,t) + B*U(:,t);
+
+%%
+%% ²ÎÊıÉèÖÃ
+clear all
+N = 10; T = 50; alpha = 3;
+lambda1 = 0.1; lambda2 = 0.1;
+A = randn(N,N)*0.1;
+X_obs = randn(N,T);
+x0 = X_obs(:,1);
+
+% ³õÊ¼»¯
+B = eye(N); B = diag(rand(N,1)>0.5);   % Ëæ»úÑ¡½Úµã
+U = randn(N,T);
+X = zeros(N,T); X(:,1)=x0;
+
+max_iter = 10;
+
+for iter=1:max_iter
+    fprintf('µü´ú %d...\n',iter);
+
+    %% Step 1: ¹Ì¶¨ B£¬ÓÅ»¯ X,U (Í¹ÎÊÌâ)
+    cvx_begin quiet
+        variables U(N,T) X(N,T)
+        reconstruction_loss = sum_square(vec(X - X_obs));
+        input_energy = lambda1*sum_square(vec(U));
+        smoothness = 0;
+        for t=1:T-1
+            smoothness = smoothness + lambda2*sum_square(U(:,t+1)-U(:,t));
         end
+        minimize( reconstruction_loss + input_energy + smoothness )
+        subject to
+            X(:,1) == x0;
+            for t=1:T-1
+                X(:,t+1) == A*X(:,t) + B*U(:,t);
+            end
+    cvx_end
 
-        % å…³é”®èŠ‚ç‚¹æ•°é‡çº¦æŸ
-        sum(diag(B)) == alpha;
+    %% Step 2: ¹Ì¶¨ U£¬ÓÅ»¯ B,X
+    cvx_begin quiet
+        variables Bdiag(N) X(N,T)
+        B = diag(Bdiag);
+        reconstruction_loss = sum_square(vec(X - X_obs));
+        minimize( reconstruction_loss )
+        subject to
+            X(:,1) == x0;
+            for t=1:T-1
+                X(:,t+1) == A*X(:,t) + B*U(:,t);
+            end
+            sum(Bdiag) == alpha;
+            0 <= Bdiag <= 1;
+    cvx_end
+end
 
-        % epsilon-æ¾å¼›å¸ƒå°”çº¦æŸ
-        for i = 1:N
-            abs(B(i,i) * (1 - B(i,i))) <= epsilon;
-        end
-cvx_end
-
-%% è¾“å‡ºç»“æœ
-disp('ä¼˜åŒ–å®Œæˆï¼')
-disp('å…³é”®èŠ‚ç‚¹é€‰æ‹©ç»“æœ (è¿‘ä¼¼0-1)ï¼š')
-disp(round(diag(B)))   % å››èˆäº”å…¥å¾—åˆ°è¿‘ä¼¼å¸ƒå°”è§£
+disp('×îÖÕ¹Ø¼ü½ÚµãÑ¡Ôñ:')
+disp(round(diag(B)))
